@@ -1,2 +1,259 @@
 #!/usr/bin/env node
 
+exports.for = function (API) {
+
+	var exports = {};
+
+	function formatLogArgs (args) {
+		var allStrings = true;
+		args.forEach(function (arg) {
+			if (!allStrings) return;
+			if (typeof arg !== "string") {
+				allStrings = false;
+			}
+		});
+		if (allStrings) {
+			return args.join(" ");
+		}
+		return (args.length > 1 ? args : args[0]);
+	}
+
+	function log () {
+		if (!API.env.VERBOSE) return;
+		var args = Array.prototype.slice.call(arguments);
+		console.log.call(console, "[sm.expand]", formatLogArgs(args));
+	}
+
+	function scanSources (basePath, sourcesPathPattern) {
+
+		function scanPaths () {
+			// Modify path pattern so we can use it for lookup.
+			var pattern = sourcesPathPattern.replace(/\{[^\}]+\}/g, "*");
+			return API.Q.denodeify(function (callback) {
+				return API.GLOB(pattern, {
+					cwd: basePath
+				}, callback);
+			})();
+		}
+
+		function scanWithAdapters (paths) {
+			var info = {};
+			return API.GIT_STATUS(paths).then(function (gitStatus) {
+				for (var path in gitStatus) {
+					var relpath = API.PATH.relative(basePath, path);
+					info[relpath] = {
+						realpath: gitStatus[path].realpath,
+						uri: "git://" + gitStatus[path].origin + "#" + gitStatus[path].ref
+					};
+					if (gitStatus[path].branch) {
+						info[relpath].uri += "(" + gitStatus[path].branch + ")";
+					}
+				}
+			}).then(function () {
+				return API.NPM_IS_PACKAGE(paths).then(function (isPackage) {
+					for (var path in isPackage) {
+						if (isPackage[path]) {
+							info[path].installer = "npm";
+						}
+					}
+				});
+			}).then(function () {
+				return info;
+			});
+		}
+
+		return scanPaths().then(function (paths) {
+
+			return scanWithAdapters(paths).then(function (sourcesInfo) {
+
+				var sources = {};
+				var realpaths = {};
+
+				paths.forEach(function (sourcePath) {
+					// Modify path pattern so we can use it to parse the pointer segments from 'sourcePath'.
+					var pointerMatch = sourcePath.match(new RegExp(
+						API.REGEXP_ESCAPE(sourcesPathPattern).replace(/\\\{[^\}]+\\\}/g, "([^\/]+)")
+					));
+					if (!pointerMatch) return;
+					var pointerSegments = sourcesPathPattern.match(/\{([^\}]+)\}/g);
+					var re = /\{([^\}]+)\}/g;
+					var matches = null;
+					var pointer = {};
+					while (matches = re.exec(sourcesPathPattern)) {
+						pointer[matches[1]] = pointerMatch[Object.keys(pointer).length + 1];
+					}
+					var relpath = sourcesPathPattern
+						.replace(/\{uid\}/g, pointer.uid)
+						.replace(/\{rev\}/g, pointer.rev);
+					if (sourcesInfo[relpath]) {
+
+						// "github.com~kriskowal~q-io~0": {
+						// 	  "master": {
+						// 		"uri": "git://git@github.com:kriskowal/q-io.git",
+						// 		"installer": "npm"
+						// 	  }
+						// }
+
+						if (!sources[pointer.uid]) {
+							sources[pointer.uid] = {};
+						}
+						sources[pointer.uid][pointer.rev] = {
+							uri: sourcesInfo[relpath].uri
+						};
+						if (sourcesInfo[relpath].installer) {
+							sources[pointer.uid][pointer.rev].installer = sourcesInfo[relpath].installer;
+						}
+						realpaths[sourcesInfo[relpath].realpath] = pointer.uid + "/" + pointer.rev;
+					}
+				});
+
+				return {
+					sources: sources,
+					realpaths: realpaths
+				};
+			});
+		});
+	}
+
+	function scanMappings (basePath, mappingsPathPattern, sourcePaths) {
+
+		function scanPaths () {
+			// Modify path pattern so we can use it for lookup.
+			var pattern = mappingsPathPattern.replace(/\{[^\}]+\}/g, "*");
+			return API.Q.denodeify(function (callback) {
+				return API.GLOB(pattern, {
+					cwd: basePath
+				}, callback);
+			})();
+		}
+
+		function isPackageLinked (basePath) {
+			return API.QFS.isSymbolicLink(basePath).then(function (isLink) {
+				if (!isLink) return null;
+				return API.QFS.readLink(basePath).then(function (linkSource) {
+					return API.QFS.canonical(
+						API.PATH.resolve(API.PATH.dirname(basePath), linkSource)
+					);
+				});
+			});
+		}
+
+		return scanPaths().then(function (paths) {
+			var mappings = {};
+			return API.Q.all(paths.map(function (path) {
+				return isPackageLinked(path).then(function (linkSource) {
+					if (!linkSource) return;
+
+					// Modify path pattern so we can use it to parse the pointer segments from 'path'.
+					var pointerMatch = path.match(new RegExp(
+						API.REGEXP_ESCAPE(mappingsPathPattern).replace(/\\\{[^\}]+\\\}/g, "([^\/]+)")
+					));
+					if (!pointerMatch) return;
+					var pointerSegments = mappingsPathPattern.match(/\{([^\}]+)\}/g);
+					var re = /\{([^\}]+)\}/g;
+					var matches = null;
+					var pointer = {};
+					while (matches = re.exec(mappingsPathPattern)) {
+						pointer[matches[1]] = pointerMatch[Object.keys(pointer).length + 1];
+					}
+					if (sourcePaths[linkSource]) {
+						mappings[pointer.alias] = sourcePaths[linkSource];
+					}
+				});
+			})).then(function () {
+				return mappings;
+			});
+		});
+	}
+
+	function writeDescriptor (descriptorPath, sources, mappings) {
+		return API.QFS.read(descriptorPath).then(function (descriptor) {
+			descriptor = JSON.parse(descriptor);
+			var map = descriptor["@github.com~sourcemint~sm.expand~0/map"];
+			map.sources = sources;
+			map.mappings = mappings;
+			return API.QFS.write(
+				descriptorPath,
+				JSON.stringify(descriptor, null, 4)
+			);
+		});
+	}
+
+	exports.for = function (module) {
+
+		log("CODEBASE", __dirname);
+
+		var origin = API.env.CWD;
+
+		var contract = function (to) {
+
+			to = to || origin;
+
+			return API.CONFIG("file://" + to).then(function (config) {
+
+				var map = config.descriptor.at("github.com~sourcemint~sm.expand~0/map");
+				var locations = map.at("github.com~sourcemint~sm.expand~0/locations");
+
+				return scanSources(origin, locations.sources).then(function (sourcesInfo) {
+
+					return scanMappings(origin, locations.mappings, sourcesInfo.realpaths).then(function (mappings) {
+
+						return writeDescriptor(to, sourcesInfo.sources, mappings);
+					});
+				});
+
+			}).then(function () {
+				return {
+					contracted: true
+				};
+			});
+		}
+
+		return contract;
+	}
+	return exports;
+}
+
+
+if (require.main === module) {
+
+	// Establish container environment for the module.
+
+	const API = {
+		EXTEND: require("extend"),
+		PATH: require("path"),
+		FS: require("fs"),
+		EXEC: require("child_process").exec,
+		SPAWN: require("child_process").spawn,
+		Q: require("q"),
+		REGEXP_ESCAPE: require("escape-regexp-component"),
+		GLOB: require("glob"),
+		QFS: require("q-io/fs"),
+		env: {
+			VERBOSE: process.env.VERBOSE,
+			BO_GLOBAL_SYSTEM_CACHE_DIR: process.env.BO_GLOBAL_SYSTEM_CACHE_DIR,
+			CWD: process.cwd()
+		}
+	};
+
+	API.EXTEND(false, API, {
+		CONFIG: require("pinf.logic-for-json").for(API),
+		GIT_STATUS: require("smi-for-git/api/get-status").for(API).PLFunction,
+		NPM_IS_PACKAGE: require("smi-for-npm/api/is-package").for(API).PLFunction
+	});
+
+	var api = exports.for(API);
+
+	API.Q.when(api.for({
+		filename: API.env.CWD
+	})(API.PATH.resolve(process.argv[2]))).then(function (info) {
+		if (info.expanded) {
+			process.exit(0);
+		} else {
+			process.exit(1);
+		}
+	}).fail(function (err) {
+		console.error("ERROR:", err.stack || err);
+		process.exit(1);
+	});
+}
