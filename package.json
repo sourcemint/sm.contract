@@ -1,7 +1,7 @@
 {
     "uid": "github.com~sourcemint~sm.contract~0",
     "name": "sm.contract",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "main": "sm.contract",
     "dependencies": {
         "escape-regexp-component": "^1.0.2",
