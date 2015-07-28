@@ -167,8 +167,19 @@ exports.for = function (API) {
 	}
 
 	function writeDescriptor (descriptorPath, sources, mappings) {
-		return API.QFS.read(descriptorPath).then(function (descriptor) {
-			descriptor = JSON.parse(descriptor);
+		function readExisting () {
+			return API.QFS.exists(descriptorPath).then(function (exists) {
+				if (!exists) {
+					return {
+						"@github.com~sourcemint~sm.expand~0/map": {}
+					};
+				}
+				return API.QFS.read(descriptorPath).then(function (descriptor) {
+					return JSON.parse(descriptor);
+				});
+			});
+		}
+		return readExisting().then(function (descriptor) {
 			var map = descriptor["@github.com~sourcemint~sm.expand~0/map"];
 			map.sources = sources;
 			map.mappings = mappings;
@@ -198,7 +209,7 @@ exports.for = function (API) {
 
 					return scanMappings(origin, locations.mappings, sourcesInfo.realpaths).then(function (mappings) {
 
-						return writeDescriptor(to, sourcesInfo.sources, mappings);
+						return writeDescriptor(API.PATH.join(origin, "sm.json"), sourcesInfo.sources, mappings);
 					});
 				});
 
@@ -247,7 +258,7 @@ if (require.main === module) {
 	API.Q.when(api.for({
 		filename: API.env.CWD
 	})(API.PATH.resolve(process.argv[2]))).then(function (info) {
-		if (info.expanded) {
+		if (info.contracted) {
 			process.exit(0);
 		} else {
 			process.exit(1);
