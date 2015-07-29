@@ -24,6 +24,33 @@ exports.for = function (API) {
 		console.log.call(console, "[sm.expand]", formatLogArgs(args));
 	}
 
+	function getGitStatusForPaths (basePath, paths) {
+		var info = {};
+		return API.GIT_STATUS(paths).then(function (gitStatus) {
+			for (var path in gitStatus) {
+				var relpath = API.PATH.relative(basePath, path);
+				info[relpath] = {
+					realpath: gitStatus[path].realpath,
+					uri: "git://" + gitStatus[path].origin + "#" + gitStatus[path].ref
+				};
+				if (gitStatus[path].branch) {
+					info[relpath].uri += "(" + gitStatus[path].branch + ")";
+				}
+			}
+		}).then(function () {
+			return API.NPM_IS_PACKAGE(paths).then(function (isPackage) {
+				for (var path in isPackage) {
+					var relpath = API.PATH.relative(basePath, path);
+					if (isPackage[path]) {
+						info[relpath].installer = "npm";
+					}
+				}
+			});
+		}).then(function () {
+			return info;
+		});
+	}
+
 	function scanSources (basePath, sourcesPathPattern) {
 
 		function scanPaths () {
@@ -37,29 +64,7 @@ exports.for = function (API) {
 		}
 
 		function scanWithAdapters (paths) {
-			var info = {};
-			return API.GIT_STATUS(paths).then(function (gitStatus) {
-				for (var path in gitStatus) {
-					var relpath = API.PATH.relative(basePath, path);
-					info[relpath] = {
-						realpath: gitStatus[path].realpath,
-						uri: "git://" + gitStatus[path].origin + "#" + gitStatus[path].ref
-					};
-					if (gitStatus[path].branch) {
-						info[relpath].uri += "(" + gitStatus[path].branch + ")";
-					}
-				}
-			}).then(function () {
-				return API.NPM_IS_PACKAGE(paths).then(function (isPackage) {
-					for (var path in isPackage) {
-						if (isPackage[path]) {
-							info[path].installer = "npm";
-						}
-					}
-				});
-			}).then(function () {
-				return info;
-			});
+			return getGitStatusForPaths(basePath, paths);
 		}
 
 		return scanPaths().then(function (paths) {
@@ -220,13 +225,15 @@ exports.for = function (API) {
 			});
 		}
 
+		// POLICY: Variables starting with uppercase characters are static methods.
+		contract.GetGitStatusForPaths = getGitStatusForPaths;
+
 		return contract;
 	}
 	return exports;
 }
 
-
-if (require.main === module) {
+exports.api = function (options) {
 
 	// Establish container environment for the module.
 
@@ -255,9 +262,16 @@ if (require.main === module) {
 
 	var api = exports.for(API);
 
-	API.Q.when(api.for({
-		filename: API.env.CWD
-	})(API.PATH.resolve(process.argv[2]))).then(function (info) {
+	return api.for(options);
+}
+
+if (require.main === module) {
+
+	require("q").when(
+		exports.api({
+			filename: process.cwd()
+		})(require("path").resolve(process.argv[2]))
+	).then(function (info) {
 		if (info.contracted) {
 			process.exit(0);
 		} else {
@@ -268,3 +282,4 @@ if (require.main === module) {
 		process.exit(1);
 	});
 }
+
