@@ -1,7 +1,7 @@
 {
     "uid": "github.com~sourcemint~sm.contract~0",
     "name": "sm.contract",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "main": "sm.contract",
     "bin": {
         "sm.contract": "./sm.contract"
