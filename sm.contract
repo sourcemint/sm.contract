@@ -51,7 +51,7 @@ exports.for = function (API) {
 		});
 	}
 
-	function scanSources (basePath, sourcesPathPattern) {
+	function scanSources (map, basePath, sourcesPathPattern) {
 
 		function scanPaths () {
 			// Modify path pattern so we can use it for lookup.
@@ -108,9 +108,19 @@ exports.for = function (API) {
 
 						sources[pointer.uid][pointer.rev].uri = sourcesInfo[relpath].uri;
 
+						if (
+							map.sources &&
+							map.sources[pointer.uid] &&
+							map.sources[pointer.uid][pointer.rev]
+						) {
+							if (map.sources[pointer.uid][pointer.rev].installer) {
+								sources[pointer.uid][pointer.rev].installer = map.sources[pointer.uid][pointer.rev].installer;
+							}
+						} else
 						if (sourcesInfo[relpath].installer) {
 							sources[pointer.uid][pointer.rev].installer = sourcesInfo[relpath].installer;
 						}
+						
 						realpaths[sourcesInfo[relpath].realpath] = pointer.uid + "/" + pointer.rev;
 					}
 				});
@@ -221,7 +231,7 @@ exports.for = function (API) {
 				var map = config.descriptor.at("github.com~sourcemint~sm.expand~0/map");
 				var locations = map.at("github.com~sourcemint~sm.expand~0/locations");
 
-				return scanSources(origin, locations.sources).then(function (sourcesInfo) {
+				return scanSources(map, origin, locations.sources).then(function (sourcesInfo) {
 
 					return scanMappings(origin, locations.mappings, sourcesInfo.realpaths).then(function (mappings) {
 
