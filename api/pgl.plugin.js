@@ -11,18 +11,23 @@ exports.for = function (API) {
 
 		return resolver({}).then(function (resolvedConfig) {
 
-// TODO: Only do contraction if we have a reason to do so (i.e. something has changed).
-resolvedConfig.t = Date.now();
+			return API.Q.when(SM_CONTRACT.api(module)(
+				API.PATH.join(API.getPGSRootPath(), "package.json")
+			)).then(function (info) {
 
-			return resolvedConfig;
+				resolvedConfig.sources = info.sources;
+				resolvedConfig.mappings = info.mappings;
+
+				// Pull in path so it serializes.
+				for (var sourceId in info.sources) {
+					for (var branchId in info.sources[sourceId]) {
+						info.sources[sourceId][branchId].path = API.PATH.join(API.getPGSRootPath(), "..", info.sources[sourceId][branchId].path);
+					}
+				}
+
+				return resolvedConfig;
+			});
 		});
-	}
-
-	exports.turn = function (resolvedConfig) {
-
-		return API.Q.when(SM_CONTRACT.api(module)(
-			API.PATH.join(API.getPGSRootPath(), "package.json")
-		));
 	}
 
 	return exports;

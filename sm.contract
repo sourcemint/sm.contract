@@ -102,9 +102,12 @@ exports.for = function (API) {
 						if (!sources[pointer.uid]) {
 							sources[pointer.uid] = {};
 						}
-						sources[pointer.uid][pointer.rev] = {
-							uri: sourcesInfo[relpath].uri
-						};
+						sources[pointer.uid][pointer.rev] = Object.create({
+							path: sourcePath
+						});
+
+						sources[pointer.uid][pointer.rev].uri = sourcesInfo[relpath].uri;
+
 						if (sourcesInfo[relpath].installer) {
 							sources[pointer.uid][pointer.rev].installer = sourcesInfo[relpath].installer;
 						}
@@ -214,14 +217,15 @@ exports.for = function (API) {
 
 					return scanMappings(origin, locations.mappings, sourcesInfo.realpaths).then(function (mappings) {
 
-						return writeDescriptor(API.PATH.join(origin, "sm.json"), sourcesInfo.sources, mappings);
+						return writeDescriptor(API.PATH.join(origin, "sm.json"), sourcesInfo.sources, mappings).then(function () {
+
+							return {
+								sources: sourcesInfo.sources,
+								mappings: mappings
+							};
+						});
 					});
 				});
-
-			}).then(function () {
-				return {
-					contracted: true
-				};
 			});
 		}
 
@@ -272,11 +276,7 @@ if (require.main === module) {
 			filename: process.cwd()
 		})(require("path").resolve(process.argv[2]))
 	).then(function (info) {
-		if (info.contracted) {
-			process.exit(0);
-		} else {
-			process.exit(1);
-		}
+		process.exit(0);
 	}).fail(function (err) {
 		console.error("ERROR:", err.stack || err);
 		process.exit(1);
