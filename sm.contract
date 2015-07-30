@@ -42,7 +42,11 @@ exports.for = function (API) {
 				for (var path in isPackage) {
 					var relpath = API.PATH.relative(basePath, path);
 					if (isPackage[path]) {
-						info[relpath].installer = "npm";
+						if (info[relpath]) {
+							info[relpath].installer = "npm";
+						} else {
+							console.log("Warning: Skip setting installed to 'npm' for relpath '" + relpath + "' which does not already exist!");
+						}
 					}
 				}
 			});
