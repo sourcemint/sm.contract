@@ -191,6 +191,14 @@ exports.for = function (API) {
 			var map = descriptor["@github.com~sourcemint~sm.expand~0/map"];
 			map.sources = sources;
 			map.mappings = mappings;
+			if (!map["@github.com~sourcemint~sm.expand~0/locations"]) {
+				map["@github.com~sourcemint~sm.expand~0/locations"] = {
+		            "sources": ".deps/{uid}/source/installed/{rev}",
+		            "mappings": "node_modules/{alias}",
+		            "binaries": "node_modules/.bin/{bin}",
+		            "registries": "{{env.HOME}}/.bash.origin.cache/{uid}/source/installed/{rev}"
+				};
+			}
 			return API.QFS.write(
 				descriptorPath,
 				API.CJSON(descriptor, null, 4)
