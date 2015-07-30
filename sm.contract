@@ -193,7 +193,7 @@ exports.for = function (API) {
 			map.mappings = mappings;
 			return API.QFS.write(
 				descriptorPath,
-				JSON.stringify(descriptor, null, 4)
+				API.CJSON(descriptor, null, 4)
 			);
 		});
 	}
@@ -248,6 +248,7 @@ exports.api = function (options) {
 		EXEC: require("child_process").exec,
 		SPAWN: require("child_process").spawn,
 		Q: require("q"),
+		CJSON: require("canonical-json"),
 		REGEXP_ESCAPE: require("escape-regexp-component"),
 		GLOB: require("glob"),
 		QFS: require("q-io/fs"),
